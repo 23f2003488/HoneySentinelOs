@@ -1,0 +1,301 @@
+# HoneySentinel-OS — Security Policy
+# Version: 1.0
+#
+# This file is the ground truth for all agent reasoning.
+# Agents never guess context — they read it from here.
+# Edit this before each analysis run to match your target repo.
+
+version: "1.0"
+
+# ─── Session Context ──────────────────────────────────────────────────────────
+# Agents inject this into every reasoning prompt so they understand
+# what kind of system they are analyzing. More context = fewer hallucinations.
+
+context:
+  project_name: "My Project"
+  project_type: "web_application"     # web_application | cli_tool | library | api_service | mobile_backend
+  language_stack:
+    - python
+    - javascript
+  framework: "fastapi"                # fastapi | django | flask | express | spring | none
+  authentication_type: "jwt"          # jwt | session | oauth2 | api_key | none
+  data_sensitivity: "high"           # low | medium | high | critical
+  deployment_target: "cloud"          # cloud | on_premise | hybrid
+  has_database: true
+  database_type: "postgresql"         # postgresql | mysql | mongodb | sqlite | none
+  exposes_public_api: true
+  handles_pii: true
+
+
+# ─── Agent Behaviour ──────────────────────────────────────────────────────────
+
+agents:
+  # How confident an agent must be before writing a finding without asking.
+  # Below this threshold → agent pauses and asks the human.
+  confidence_threshold: 0.60
+
+  # Max reasoning loop iterations per agent before it stops and reports.
+  max_iterations: 50
+
+  # Max findings the analysis agent will write before stopping.
+  max_findings: 50
+
+  # If true, agents explain their false-positive reasoning in every finding.
+  require_fp_reasoning: true
+
+
+# ─── Security Rules ───────────────────────────────────────────────────────────
+# Each rule has an id, severity, and description.
+# Agents check enabled: true/false before applying a rule.
+# The pattern_hints are NOT regexes — they are semantic hints for the AI
+# and seed phrases for Azure AI Search vector queries.
+
+rules:
+
+  - id: HARDCODED_SECRET
+    enabled: true
+    severity: critical
+    category: secrets
+    title: "Hardcoded secret or credential"
+    description: >
+      Detects API keys, passwords, tokens, or private keys hardcoded
+      directly in source files rather than loaded from environment variables
+      or a secrets manager.
+    pattern_hints:
+      - "hardcoded password"
+      - "api key in source"
+      - "secret = "
+      - "private key literal"
+      - "token hardcoded"
+    languages: [python, javascript, typescript, java, go]
+    false_positive_signals:
+      - "test fixture"
+      - "mock data"
+      - "example key"
+      - "placeholder"
+
+  - id: SQL_INJECTION
+    enabled: true
+    severity: high
+    category: injection
+    title: "SQL injection vulnerability"
+    description: >
+      Detects SQL queries constructed via string concatenation or formatting
+      with user-controlled input, bypassing parameterized queries.
+    pattern_hints:
+      - "string concatenation in sql"
+      - "f-string in query"
+      - "format() in sql"
+      - "user input in query"
+    languages: [python, javascript, java, php]
+    false_positive_signals:
+      - "parameterized query"
+      - "prepared statement"
+      - "orm query"
+
+  - id: INSECURE_DESERIALIZATION
+    enabled: true
+    severity: high
+    category: injection
+    title: "Insecure deserialization"
+    description: >
+      Detects use of unsafe deserialization functions like pickle.loads,
+      yaml.load without Loader, or eval() on external input.
+    pattern_hints:
+      - "pickle.loads"
+      - "yaml.load without SafeLoader"
+      - "eval with user input"
+      - "exec with user input"
+    languages: [python]
+    false_positive_signals:
+      - "safe_load"
+      - "internal data only"
+
+  - id: BROKEN_AUTH
+    enabled: true
+    severity: high
+    category: authentication
+    title: "Broken authentication"
+    description: >
+      Detects weak JWT handling (no signature verification, algorithm=none),
+      missing authentication decorators on sensitive routes, or session
+      tokens stored insecurely.
+    pattern_hints:
+      - "jwt decode without verify"
+      - "algorithm none"
+      - "unprotected route"
+      - "session in cookie plaintext"
+    languages: [python, javascript, typescript]
+    false_positive_signals:
+      - "internal endpoint"
+      - "health check"
+      - "public route"
+
+  - id: SENSITIVE_DATA_EXPOSURE
+    enabled: true
+    severity: high
+    category: data_protection
+    title: "Sensitive data exposure"
+    description: >
+      Detects PII or sensitive data logged, returned in API responses
+      without masking, or stored without encryption.
+    pattern_hints:
+      - "password in log"
+      - "pii in response"
+      - "credit card logged"
+      - "ssn in plaintext"
+      - "unencrypted sensitive field"
+    languages: [python, javascript, typescript, java]
+    false_positive_signals:
+      - "masked"
+      - "redacted"
+      - "hashed"
+
+  - id: INSECURE_DIRECT_OBJECT_REF
+    enabled: true
+    severity: medium
+    category: access_control
+    title: "Insecure direct object reference (IDOR)"
+    description: >
+      Detects endpoints that use user-supplied IDs to access objects
+      without verifying the requesting user owns or has permission
+      to access that object.
+    pattern_hints:
+      - "user_id from request without check"
+      - "object fetched by id no ownership check"
+      - "idor"
+    languages: [python, javascript, typescript]
+    false_positive_signals:
+      - "admin only"
+      - "ownership verified"
+      - "permission check"
+
+  - id: MISSING_RATE_LIMIT
+    enabled: true
+    severity: medium
+    category: availability
+    title: "Missing rate limiting on sensitive endpoint"
+    description: >
+      Detects authentication, registration, or password reset endpoints
+      that have no rate limiting or throttling mechanism.
+    pattern_hints:
+      - "login endpoint no rate limit"
+      - "register no throttle"
+      - "password reset unlimited"
+    languages: [python, javascript, typescript]
+    false_positive_signals:
+      - "rate_limit decorator"
+      - "throttle"
+      - "slowapi"
+      - "express-rate-limit"
+
+  - id: VULNERABLE_DEPENDENCY
+    enabled: true
+    severity: high
+    category: dependencies
+    title: "Known vulnerable dependency"
+    description: >
+      Detects dependencies with known CVEs based on version ranges
+      in requirements.txt, package.json, or similar manifest files.
+    pattern_hints:
+      - "outdated package"
+      - "cve in dependency"
+      - "vulnerable version"
+    languages: [python, javascript, typescript, java]
+    false_positive_signals:
+      - "dev dependency only"
+      - "patched internally"
+
+  - id: MISCONFIGURED_CORS
+    enabled: true
+    severity: medium
+    category: configuration
+    title: "Misconfigured CORS policy"
+    description: >
+      Detects CORS configured to allow all origins (*) on an API
+      that handles authenticated requests or sensitive data.
+    pattern_hints:
+      - "allow_origins *"
+      - "cors wildcard"
+      - "Access-Control-Allow-Origin *"
+    languages: [python, javascript, typescript]
+    false_positive_signals:
+      - "public api"
+      - "no credentials"
+      - "cdn only"
+
+  - id: INSECURE_CONFIG
+    enabled: true
+    severity: medium
+    category: configuration
+    title: "Insecure configuration in config file"
+    description: >
+      Detects debug mode enabled in production config, insecure default
+      settings, or credentials embedded in yaml/json/env config files.
+    pattern_hints:
+      - "debug true in production"
+      - "secret in config file"
+      - "allow_all in config"
+    languages: [yaml, json, toml, ini]
+    false_positive_signals:
+      - "development config only"
+      - "example config"
+
+
+# ─── Severity → Action Mapping ────────────────────────────────────────────────
+# Defines what the report agent does with findings at each severity level.
+
+severity_actions:
+  critical:
+    report_section: "critical_findings"
+    recommended_action: "Block merge / deployment immediately"
+    escalate: true
+  high:
+    report_section: "high_findings"
+    recommended_action: "Fix before next release"
+    escalate: false
+  medium:
+    report_section: "medium_findings"
+    recommended_action: "Schedule fix within sprint"
+    escalate: false
+  low:
+    report_section: "low_findings"
+    recommended_action: "Add to backlog"
+    escalate: false
+  info:
+    report_section: "informational"
+    recommended_action: "Review and document"
+    escalate: false
+
+
+# ─── File Scope ───────────────────────────────────────────────────────────────
+# Controls which files the recon and analysis agents will and won't touch.
+
+scope:
+  include_extensions:
+    - .py
+    - .js
+    - .ts
+    - .jsx
+    - .tsx
+    - .yaml
+    - .yml
+    - .json
+    - .toml
+    - .env
+    - .ini
+    - .cfg
+    - .txt         # requirements.txt, constraints.txt
+
+  exclude_paths:
+    - node_modules/
+    - .git/
+    - __pycache__/
+    - .venv/
+    - venv/
+    - dist/
+    - build/
+    - "*.min.js"
+    - "*.lock"
+
+  max_file_size_kb: 500

@@ -1,0 +1,25 @@
+# HoneySentinel-OS dependencies
+
+# Web framework + async
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9
+
+# Azure services
+openai==1.30.1                  # Azure OpenAI (same SDK, different endpoint)
+azure-storage-blob==12.20.0     # Azure Blob Storage
+azure-cosmos==4.7.0             # Azure Cosmos DB (Phase 3 memory backend)
+azure-identity==1.17.0          # Managed identity + DefaultAzureCredential
+azure-messaging-webpubsubservice==1.1.0  # Azure Web PubSub (Phase 4 streaming)
+
+# Policy
+pyyaml==6.0.1
+
+# Utilities
+python-dotenv==1.0.1            # load .env file
+aiofiles==23.2.1                # async file I/O for file_scanner tool
+httpx==0.27.0                   # async HTTP for dependency CVE checks
+
+# Testing
+pytest==8.2.0
+pytest-asyncio==0.23.7
