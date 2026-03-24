@@ -61,7 +61,6 @@ body {
   line-height: 1;
   background: linear-gradient(135deg, var(--accent), #a855f7);
   -webkit-background-clip: text;
-  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 .logo-title {
@@ -178,7 +177,6 @@ body {
   font-size: 20px;
   background: linear-gradient(135deg, var(--accent), #a855f7);
   -webkit-background-clip: text;
-  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 .header-title { font-size: 16px; font-weight: 700; color: var(--text); letter-spacing: -0.2px; }
@@ -582,3 +580,24 @@ body {
   align-self: flex-start;
 }
 .btn-load-report:hover { border-color: var(--accent); color: var(--text); }
+
+/* CWE and OWASP badges */
+.finding-cwe {
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(108,99,255,0.15);
+  color: #a78bfa;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  font-family: 'Menlo', monospace;
+}
+.finding-owasp {
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(249,115,22,0.15);
+  color: #fb923c;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}

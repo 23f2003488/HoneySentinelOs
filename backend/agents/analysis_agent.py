@@ -163,7 +163,7 @@ class AnalysisAgent(BaseAgent):
         flagged     = result.get("flagged", [])
         file_content= result.get("file_content", "")
         formatted   = result.get("formatted", "")
-        existing    = {(f.rule_id, f.file_path) for f in findings}  # FIX: dedupe by rule+file, not rule alone
+        existing    = {f.rule_id for f in findings}
 
         # For dependency checks with flags — always reason about them
         has_findings_to_reason = (match_count > 0 or flag_count > 0 or len(flagged) > 0)
@@ -189,7 +189,7 @@ class AnalysisAgent(BaseAgent):
             "You are a security analysis agent in HoneySentinel-OS. "
             "Your job is to find real security vulnerabilities. "
             "Be thorough — do not dismiss findings without good reason. "
-            "If something looks suspicious but you are not sure, set confidence below 0.75 and provide a human_question. "
+            "CRITICAL: Set overall_confidence to your TRUE confidence (0.0 to 1.0). Only set >= 0.95 if you are ABSOLUTELY certain. For anything ambiguous, set lower and write a human_question — the analyst MUST review. Output ONLY valid JSON with no markdown fences."
             "Output ONLY valid JSON with no markdown fences."
         )
 
@@ -199,12 +199,12 @@ class AnalysisAgent(BaseAgent):
             f"FILE BEING ANALYSED: {file_path}\n"
             f"LANGUAGE: {_ext_to_lang(file_path)}\n\n"
             f"TOOL EVIDENCE:\n{evidence_block}\n"
-            f"ALREADY FOUND for this file (do not duplicate): {[r for r, f in existing if f == file_path]}\n\n"
+            f"ALREADY FOUND (do not duplicate these rule IDs): {list(existing)}\n\n"
             f"INSTRUCTIONS:\n"
             f"1. For each piece of evidence, decide if it is a true positive security issue.\n"
             f"2. Consider the project context: {self.policy.context.authentication_type} auth, "
             f"{self.policy.context.data_sensitivity} sensitivity data, handles_pii={self.policy.context.handles_pii}.\n"
-            f"3. If confidence < {threshold}: set human_question so the analyst can clarify.\n"
+            f"3. If confidence < {threshold}: you MUST set human_question. Do not leave it empty.\n"
             f"4. Be aggressive about finding issues — this is a security tool.\n\n"
             f"RESPOND WITH THIS EXACT JSON STRUCTURE:\n"
             f'{{"findings":[{{"rule_id":"RULE_ID","severity":"critical|high|medium|low|info",'
@@ -214,7 +214,7 @@ class AnalysisAgent(BaseAgent):
             f'"confidence":0.85,"false_positive_risk":"Why this might not be an issue",'
             f'"is_true_positive":true}}],'
             f'"overall_confidence":0.85,'
-            f'"human_question":"Ask this if uncertain (empty string if confident)",'
+            f'"human_question":"REQUIRED if confidence < {threshold}: what is uncertain about this finding?",'
             f'"human_options":["Option 1","Option 2"]}}'
         )
 
@@ -230,11 +230,13 @@ class AnalysisAgent(BaseAgent):
         for fd in ev.get("findings", []):
             if not fd.get("is_true_positive", True):
                 continue
-            if (fd.get("rule_id"), file_path) in existing:     # dedupe by rule+file, not rule alone
+            if fd.get("rule_id") in existing:
                 continue
             evidence_val = fd.get("evidence", "")
             if not isinstance(evidence_val, str):
                 evidence_val = json.dumps(evidence_val)
+            # Look up CWE from policy rule
+            rule_obj = self.policy.get_rule(fd.get("rule_id", ""))
             await self.memory.add_finding(self.session_id, Finding(
                 agent_id=self.agent_id,
                 file_path=file_path,
@@ -246,6 +248,9 @@ class AnalysisAgent(BaseAgent):
                 recommendation=fd.get("recommendation", ""),
                 confidence=float(fd.get("confidence", 0.5)),
                 false_positive_risk=fd.get("false_positive_risk", ""),
+                cwe_id=rule_obj.cwe_id if rule_obj else fd.get("cwe_id", ""),
+                cwe_name=rule_obj.cwe_name if rule_obj else fd.get("cwe_name", ""),
+                owasp=rule_obj.owasp if rule_obj else fd.get("owasp", ""),
             ))
             new_findings_count += 1
 

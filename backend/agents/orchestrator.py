@@ -83,15 +83,21 @@ class OrchestratorAgent:
             self._report = reporter.get_report()
             logger.info(f"[orchestrator] ReportAgent done")
 
-            orch_state = await self.memory.get_agent_state(self.session_id, "orchestrator")
-            if orch_state:
-                orch_state.update(status=AgentStatus.DONE, thought="All agents completed successfully.", decision="stop", finished_at=_now())
-                await self.memory.upsert_agent_state(self.session_id, orch_state)
-
             await self._update_session(
                 status      = SessionStatus.DONE,
                 finished_at = _now(),
             )
+
+            # Mark orchestrator itself as done so UI shows it correctly
+            orch_state = await self.memory.get_agent_state(self.session_id, "orchestrator")
+            if orch_state:
+                orch_state.update(
+                    status    = AgentStatus.DONE,
+                    thought   = "All agents completed. Analysis finished.",
+                    decision  = "stop",
+                    finished_at = _now(),
+                )
+                await self.memory.upsert_agent_state(self.session_id, orch_state)
 
             return self._report
 

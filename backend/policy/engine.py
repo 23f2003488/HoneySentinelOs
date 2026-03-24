@@ -75,9 +75,12 @@ class SecurityRule:
     category: str
     title: str
     description: str
-    pattern_hints: list[str]        # semantic hints for AI Search + prompt grounding
+    pattern_hints: list[str]
     languages: list[str]
     false_positive_signals: list[str]
+    cwe_id: str = ""        # e.g. "CWE-89"
+    cwe_name: str = ""      # e.g. "SQL Injection"
+    owasp: str = ""         # e.g. "A03:2021"
     enabled: bool = True
 
     def to_prompt_block(self) -> str:
@@ -244,6 +247,9 @@ class PolicyEngine:
                 pattern_hints         = r.get("pattern_hints", []),
                 languages             = r.get("languages", []),
                 false_positive_signals= r.get("false_positive_signals", []),
+                cwe_id                = r.get("cwe_id", ""),
+                cwe_name              = r.get("cwe_name", ""),
+                owasp                 = r.get("owasp", ""),
                 enabled               = True,
             ))
         return rules

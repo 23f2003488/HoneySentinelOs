@@ -1,54 +1,30 @@
-# HoneySentinel-OS — Security Policy
-# Version: 1.0
-#
-# This file is the ground truth for all agent reasoning.
-# Agents never guess context — they read it from here.
-# Edit this before each analysis run to match your target repo.
+# HoneySentinel-OS Security Policy
+# Version 2.0 — with CWE mappings
 
-version: "1.0"
-
-# ─── Session Context ──────────────────────────────────────────────────────────
-# Agents inject this into every reasoning prompt so they understand
-# what kind of system they are analyzing. More context = fewer hallucinations.
+version: "2.0"
 
 context:
   project_name: "My Project"
-  project_type: "web_application"     # web_application | cli_tool | library | api_service | mobile_backend
+  project_type: "web_application"
   language_stack:
     - python
     - javascript
-  framework: "fastapi"                # fastapi | django | flask | express | spring | none
-  authentication_type: "jwt"          # jwt | session | oauth2 | api_key | none
-  data_sensitivity: "high"           # low | medium | high | critical
-  deployment_target: "cloud"          # cloud | on_premise | hybrid
+  framework: "fastapi"
+  authentication_type: "jwt"
+  data_sensitivity: "high"
+  deployment_target: "cloud"
   has_database: true
-  database_type: "postgresql"         # postgresql | mysql | mongodb | sqlite | none
+  database_type: "postgresql"
   exposes_public_api: true
   handles_pii: true
 
-
-# ─── Agent Behaviour ──────────────────────────────────────────────────────────
-
 agents:
-  # How confident an agent must be before writing a finding without asking.
-  # Below this threshold → agent pauses and asks the human.
-  confidence_threshold: 0.60
-
-  # Max reasoning loop iterations per agent before it stops and reports.
+  # Set to 0.95 — guarantees HITL triggers for demo
+  # Every finding below 95% confidence will pause and ask the human
+  confidence_threshold: 0.95
   max_iterations: 50
-
-  # Max findings the analysis agent will write before stopping.
   max_findings: 50
-
-  # If true, agents explain their false-positive reasoning in every finding.
   require_fp_reasoning: true
-
-
-# ─── Security Rules ───────────────────────────────────────────────────────────
-# Each rule has an id, severity, and description.
-# Agents check enabled: true/false before applying a rule.
-# The pattern_hints are NOT regexes — they are semantic hints for the AI
-# and seed phrases for Azure AI Search vector queries.
 
 rules:
 
@@ -56,11 +32,13 @@ rules:
     enabled: true
     severity: critical
     category: secrets
+    cwe_id: "CWE-798"
+    cwe_name: "Use of Hard-coded Credentials"
+    owasp: "A07:2021"
     title: "Hardcoded secret or credential"
     description: >
-      Detects API keys, passwords, tokens, or private keys hardcoded
-      directly in source files rather than loaded from environment variables
-      or a secrets manager.
+      API keys, passwords, tokens, or private keys hardcoded directly in source
+      files rather than loaded from environment variables or a secrets manager.
     pattern_hints:
       - "hardcoded password"
       - "api key in source"
@@ -73,19 +51,22 @@ rules:
       - "mock data"
       - "example key"
       - "placeholder"
+      - "YOUR_KEY_HERE"
 
   - id: SQL_INJECTION
     enabled: true
     severity: high
     category: injection
+    cwe_id: "CWE-89"
+    cwe_name: "Improper Neutralization of Special Elements used in an SQL Command"
+    owasp: "A03:2021"
     title: "SQL injection vulnerability"
     description: >
-      Detects SQL queries constructed via string concatenation or formatting
-      with user-controlled input, bypassing parameterized queries.
+      SQL queries constructed via string concatenation or f-strings with
+      user-controlled input, bypassing parameterized queries.
     pattern_hints:
       - "string concatenation in sql"
       - "f-string in query"
-      - "format() in sql"
       - "user input in query"
     languages: [python, javascript, java, php]
     false_positive_signals:
@@ -95,56 +76,63 @@ rules:
 
   - id: INSECURE_DESERIALIZATION
     enabled: true
-    severity: high
+    severity: critical
     category: injection
+    cwe_id: "CWE-502"
+    cwe_name: "Deserialization of Untrusted Data"
+    owasp: "A08:2021"
     title: "Insecure deserialization"
     description: >
-      Detects use of unsafe deserialization functions like pickle.loads,
-      yaml.load without Loader, or eval() on external input.
+      Use of unsafe deserialization functions like pickle.loads,
+      yaml.load without SafeLoader, or eval() on external input.
     pattern_hints:
       - "pickle.loads"
       - "yaml.load without SafeLoader"
       - "eval with user input"
-      - "exec with user input"
     languages: [python]
     false_positive_signals:
       - "safe_load"
       - "internal data only"
+      - "trusted source"
 
   - id: BROKEN_AUTH
     enabled: true
     severity: high
     category: authentication
+    cwe_id: "CWE-287"
+    cwe_name: "Improper Authentication"
+    owasp: "A07:2021"
     title: "Broken authentication"
     description: >
-      Detects weak JWT handling (no signature verification, algorithm=none),
-      missing authentication decorators on sensitive routes, or session
-      tokens stored insecurely.
+      Weak JWT handling (no signature verification, algorithm=none),
+      missing authentication on sensitive routes, or insecure session tokens.
     pattern_hints:
       - "jwt decode without verify"
       - "algorithm none"
+      - "verify_signature false"
       - "unprotected route"
-      - "session in cookie plaintext"
     languages: [python, javascript, typescript]
     false_positive_signals:
-      - "internal endpoint"
       - "health check"
-      - "public route"
+      - "public route intentional"
+      - "internal only"
 
   - id: SENSITIVE_DATA_EXPOSURE
     enabled: true
     severity: high
     category: data_protection
+    cwe_id: "CWE-359"
+    cwe_name: "Exposure of Private Personal Information to an Unauthorized Actor"
+    owasp: "A02:2021"
     title: "Sensitive data exposure"
     description: >
-      Detects PII or sensitive data logged, returned in API responses
-      without masking, or stored without encryption.
+      PII or sensitive data logged, returned in API responses without masking,
+      or stored without encryption.
     pattern_hints:
       - "password in log"
       - "pii in response"
-      - "credit card logged"
       - "ssn in plaintext"
-      - "unencrypted sensitive field"
+      - "credit card logged"
     languages: [python, javascript, typescript, java]
     false_positive_signals:
       - "masked"
@@ -153,17 +141,18 @@ rules:
 
   - id: INSECURE_DIRECT_OBJECT_REF
     enabled: true
-    severity: medium
+    severity: high
     category: access_control
+    cwe_id: "CWE-639"
+    cwe_name: "Authorization Bypass Through User-Controlled Key"
+    owasp: "A01:2021"
     title: "Insecure direct object reference (IDOR)"
     description: >
-      Detects endpoints that use user-supplied IDs to access objects
-      without verifying the requesting user owns or has permission
-      to access that object.
+      Endpoints that use user-supplied IDs to access objects without verifying
+      the requesting user has permission to access that object.
     pattern_hints:
       - "user_id from request without check"
       - "object fetched by id no ownership check"
-      - "idor"
     languages: [python, javascript, typescript]
     false_positive_signals:
       - "admin only"
@@ -174,17 +163,19 @@ rules:
     enabled: true
     severity: medium
     category: availability
+    cwe_id: "CWE-307"
+    cwe_name: "Improper Restriction of Excessive Authentication Attempts"
+    owasp: "A04:2021"
     title: "Missing rate limiting on sensitive endpoint"
     description: >
-      Detects authentication, registration, or password reset endpoints
-      that have no rate limiting or throttling mechanism.
+      Authentication, registration, or password reset endpoints with no
+      rate limiting or throttling mechanism.
     pattern_hints:
       - "login endpoint no rate limit"
       - "register no throttle"
-      - "password reset unlimited"
     languages: [python, javascript, typescript]
     false_positive_signals:
-      - "rate_limit decorator"
+      - "rate_limit"
       - "throttle"
       - "slowapi"
       - "express-rate-limit"
@@ -193,14 +184,16 @@ rules:
     enabled: true
     severity: high
     category: dependencies
+    cwe_id: "CWE-1395"
+    cwe_name: "Use of Component with Known Vulnerabilities"
+    owasp: "A06:2021"
     title: "Known vulnerable dependency"
     description: >
-      Detects dependencies with known CVEs based on version ranges
-      in requirements.txt, package.json, or similar manifest files.
+      Dependencies with known CVEs based on version ranges in requirements.txt,
+      package.json, or similar manifest files.
     pattern_hints:
       - "outdated package"
       - "cve in dependency"
-      - "vulnerable version"
     languages: [python, javascript, typescript, java]
     false_positive_signals:
       - "dev dependency only"
@@ -210,10 +203,13 @@ rules:
     enabled: true
     severity: medium
     category: configuration
+    cwe_id: "CWE-942"
+    cwe_name: "Permissive Cross-domain Policy with Untrusted Domains"
+    owasp: "A05:2021"
     title: "Misconfigured CORS policy"
     description: >
-      Detects CORS configured to allow all origins (*) on an API
-      that handles authenticated requests or sensitive data.
+      CORS configured to allow all origins (*) on an API that handles
+      authenticated requests or sensitive data.
     pattern_hints:
       - "allow_origins *"
       - "cors wildcard"
@@ -222,28 +218,67 @@ rules:
     false_positive_signals:
       - "public api"
       - "no credentials"
-      - "cdn only"
 
   - id: INSECURE_CONFIG
     enabled: true
     severity: medium
     category: configuration
-    title: "Insecure configuration in config file"
+    cwe_id: "CWE-16"
+    cwe_name: "Configuration"
+    owasp: "A05:2021"
+    title: "Insecure configuration"
     description: >
-      Detects debug mode enabled in production config, insecure default
-      settings, or credentials embedded in yaml/json/env config files.
+      Debug mode enabled in production, insecure default settings,
+      or credentials embedded in config files.
     pattern_hints:
       - "debug true in production"
       - "secret in config file"
-      - "allow_all in config"
     languages: [yaml, json, toml, ini]
     false_positive_signals:
       - "development config only"
       - "example config"
 
+  - id: COMMAND_INJECTION
+    enabled: true
+    severity: critical
+    category: injection
+    cwe_id: "CWE-78"
+    cwe_name: "Improper Neutralization of Special Elements used in an OS Command"
+    owasp: "A03:2021"
+    title: "Command injection vulnerability"
+    description: >
+      User input passed to shell commands via subprocess, os.system,
+      or eval without sanitization.
+    pattern_hints:
+      - "subprocess shell=True with user input"
+      - "os.system user input"
+      - "eval user input"
+    languages: [python, javascript, java]
+    false_positive_signals:
+      - "sanitized input"
+      - "whitelist only"
+      - "internal command"
 
-# ─── Severity → Action Mapping ────────────────────────────────────────────────
-# Defines what the report agent does with findings at each severity level.
+  - id: PATH_TRAVERSAL
+    enabled: true
+    severity: high
+    category: injection
+    cwe_id: "CWE-22"
+    cwe_name: "Improper Limitation of a Pathname to a Restricted Directory"
+    owasp: "A01:2021"
+    title: "Path traversal vulnerability"
+    description: >
+      File paths constructed from user input without validation,
+      allowing access to files outside the intended directory.
+    pattern_hints:
+      - "os.path.join with user input"
+      - "open() with user-controlled path"
+      - "path traversal ../"
+    languages: [python, javascript, java]
+    false_positive_signals:
+      - "path sanitized"
+      - "basename only"
+      - "whitelist paths"
 
 severity_actions:
   critical:
@@ -267,10 +302,6 @@ severity_actions:
     recommended_action: "Review and document"
     escalate: false
 
-
-# ─── File Scope ───────────────────────────────────────────────────────────────
-# Controls which files the recon and analysis agents will and won't touch.
-
 scope:
   include_extensions:
     - .py
@@ -285,8 +316,7 @@ scope:
     - .env
     - .ini
     - .cfg
-    - .txt         # requirements.txt, constraints.txt
-
+    - .txt
   exclude_paths:
     - node_modules/
     - .git/
@@ -297,5 +327,4 @@ scope:
     - build/
     - "*.min.js"
     - "*.lock"
-
   max_file_size_kb: 500

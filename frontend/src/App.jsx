@@ -276,6 +276,8 @@ function FindingCard({ f }) {
             </span>
             <span className="finding-file">📄 {f.file_path?.split("/").pop() || f.file_path}</span>
             <span className="finding-conf">{f.confidence ? `${(f.confidence * 100).toFixed(0)}% confident` : ""}</span>
+            {f.cwe_id && <span className="finding-cwe">{f.cwe_id}</span>}
+            {f.owasp && <span className="finding-owasp">{f.owasp}</span>}
           </div>
         </div>
         <span className="finding-toggle">{open ? "▲" : "▼"}</span>

@@ -79,12 +79,11 @@ class BaseAgent(ABC):
         Writes initial state to memory then enters the loop.
         """
         state = AgentState(
-            agent_id       = self.agent_id,
-            agent_type     = self.agent_type,
-            goal           = self.goal,
-            status         = AgentStatus.RUNNING,
-            started_at     = _now(),
-            max_iterations = self._cfg.max_iterations,   # FIX: sync UI denominator with policy
+            agent_id   = self.agent_id,
+            agent_type = self.agent_type,
+            goal       = self.goal,
+            status     = AgentStatus.RUNNING,
+            started_at = _now(),
         )
         await self.memory.upsert_agent_state(self.session_id, state)
         logger.info(f"[{self.agent_id}] Starting — goal: {self.goal}")

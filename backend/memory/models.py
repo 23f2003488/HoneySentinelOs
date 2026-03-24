@@ -163,6 +163,9 @@ class Finding:
     recommendation: str             = ""
     confidence: float               = 0.0       # agent's self-reported confidence
     false_positive_risk: str        = ""        # agent's reasoning on FP risk
+    cwe_id: str                     = ""
+    cwe_name: str                   = ""
+    owasp: str                      = ""
     timestamp: str                  = field(default_factory=_now)
 
     def to_dict(self) -> dict:
@@ -178,6 +181,9 @@ class Finding:
             "recommendation": self.recommendation,
             "confidence": self.confidence,
             "false_positive_risk": self.false_positive_risk,
+            "cwe_id": self.cwe_id,
+            "cwe_name": self.cwe_name,
+            "owasp": self.owasp,
             "timestamp": self.timestamp,
         }
 
@@ -273,3 +279,6 @@ class SessionMeta:
             "finished_at": self.finished_at,
             "error": self.error,
         }
+
+
+
