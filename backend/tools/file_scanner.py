@@ -49,7 +49,7 @@ ENTRY_POINT_NAMES = {
 
 class FileScannerTool:
     """
-    Scans a directory and returns a RepoMap.
+    Scans a directory or zip file and returns structured file data.
     Respects policy scope rules (extensions, excluded paths, size limits).
     """
 
@@ -59,9 +59,9 @@ class FileScannerTool:
     def scan_directory(self, root_path: str) -> dict:
         """
         Main entry point for ReconAgent.
-        Auto-detects zip files and extracts before scanning.
-        Returns a dict that can be stored as RepoMap.
+        Auto-detects zip files — if root_path ends in .zip, extracts and scans.
         """
+        # KEY FIX: automatically handle zip files
         if str(root_path).lower().endswith(".zip"):
             return self.scan_zip(root_path)
 
@@ -74,10 +74,10 @@ class FileScannerTool:
         if not root.is_dir():
             return {"error": f"Path is not a directory: {root_path}"}
 
-        files: list[FileNode] = []
-        languages_seen: set[str] = set()
-        entry_points: list[str] = []
-        config_files: list[str] = []
+        files = []
+        languages_seen = set()
+        entry_points = []
+        config_files = []
         skipped = 0
 
         for file_path in root.rglob("*"):
@@ -87,7 +87,6 @@ class FileScannerTool:
             rel_path = str(file_path.relative_to(root))
             size_bytes = file_path.stat().st_size
 
-            # Policy scope check
             if not self.policy.is_in_scope(rel_path, size_bytes):
                 skipped += 1
                 continue
@@ -97,22 +96,20 @@ class FileScannerTool:
             is_binary = _is_binary(file_path)
 
             node = FileNode(
-                path       = rel_path,
-                file_type  = lang,
-                size_bytes = size_bytes,
-                is_binary  = is_binary,
-                metadata   = {"extension": ext},
+                path=rel_path,
+                file_type=lang,
+                size_bytes=size_bytes,
+                is_binary=is_binary,
+                metadata={"extension": ext},
             )
             files.append(node)
 
             if lang != "unknown":
                 languages_seen.add(lang)
 
-            # Detect entry points
             if file_path.name in ENTRY_POINT_NAMES:
                 entry_points.append(rel_path)
 
-            # Detect config files
             if lang in ("yaml", "env", "ini", "toml", "json") or file_path.name in (
                 "Dockerfile", ".env", ".env.example", "docker-compose.yml"
             ):
@@ -133,18 +130,18 @@ class FileScannerTool:
 
     def scan_zip(self, zip_path: str) -> dict:
         """
-        Extract a zip file to a PERSISTENT temp directory and scan it.
-        Stores extracted path so AnalysisAgent can read files from it.
+        Extract zip to a persistent temp directory then scan it.
+        Uses mkdtemp (not TemporaryDirectory) so files survive beyond this call.
         """
         if not zipfile.is_zipfile(zip_path):
             return {"error": f"Not a valid zip file: {zip_path}"}
 
-        # Use a persistent temp dir (not context manager) so files remain readable
+        # PERSISTENT temp dir — AnalysisAgent reads files from here later
         tmp_dir = tempfile.mkdtemp(prefix="honeySentinel_extracted_")
         with zipfile.ZipFile(zip_path, "r") as zf:
             zf.extractall(tmp_dir)
 
-        # If zip contains a single top-level folder, use that as root
+        # If zip has a single top-level folder, use that as the root
         entries = list(Path(tmp_dir).iterdir())
         if len(entries) == 1 and entries[0].is_dir():
             tmp_dir = str(entries[0])
@@ -155,9 +152,8 @@ class FileScannerTool:
 
     def read_file_content(self, root_path: str, rel_path: str) -> dict:
         """
-        Read a single file's content.
-        Called by AnalysisAgent when it needs to inspect a specific file.
-        Returns content capped at 8000 chars to stay within token limits.
+        Read a single file's content for AnalysisAgent.
+        root_path is repo_map.root_path (the extracted temp dir for zips).
         """
         full_path = Path(root_path) / rel_path
         if not full_path.exists():
@@ -182,7 +178,6 @@ class FileScannerTool:
 
 
 def _is_binary(path: Path) -> bool:
-    """Quick binary check — read first 512 bytes and look for null bytes."""
     try:
         chunk = path.read_bytes()[:512]
         return b"\x00" in chunk

@@ -1,7 +1,7 @@
 """
 HoneySentinel-OS — ReconAgent
 Goal: build a complete RepoMap of the target and write it to shared memory.
-Tools used: file_scanner (scan_directory, read_file_content)
+Tools used: file_scanner.scan_directory (auto-handles zips)
 Stops when: repo_map is complete and written to memory.
 """
 
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 from backend.agents.base_agent import BaseAgent, _truncate
@@ -22,16 +23,14 @@ class ReconAgent(BaseAgent):
 
     def __init__(self, session_id: str, repo_path: str):
         super().__init__(
-            agent_id   = "recon-001",
-            agent_type = "recon",
-            goal       = "Scan the target repository, map all files within policy scope, and write the complete RepoMap to shared memory.",
-            session_id = session_id,
+            agent_id="recon-001",
+            agent_type="recon",
+            goal="Scan the target repository, map all files within policy scope, and write the complete RepoMap to shared memory.",
+            session_id=session_id,
         )
         self.repo_path = repo_path
-        self._scanner  = FileScannerTool()
+        self._scanner = FileScannerTool()
         self._scan_result: dict = {}
-
-    # ── Observe ───────────────────────────────────────────────────────────────
 
     async def _observe(self, state: AgentState) -> str:
         repo_map = await self.memory.get_repo_map(self.session_id)
@@ -52,50 +51,27 @@ class ReconAgent(BaseAgent):
             f"Need to scan the repository."
         )
 
-    # ── Plan ──────────────────────────────────────────────────────────────────
-
     async def _plan(self, state: AgentState, observation: str) -> dict:
-        # If scan already done, just write to memory
         if self._scan_result and not await self.memory.get_repo_map(self.session_id):
             return {
                 "thought": "Scan complete. Writing RepoMap to shared memory.",
                 "action": "write_repo_map",
                 "action_input": {},
             }
-        # If already done, signal stop
         if await self.memory.get_repo_map(self.session_id):
             return {
                 "thought": "RepoMap already in memory. Goal achieved.",
                 "action": "stop",
                 "action_input": {},
             }
-
-        prompt = f"""{self._base_system_prompt()}
-
-Current observation: {observation}
-
-Decide the next action. Respond ONLY with valid JSON, no markdown fences:
-{{
-  "thought": "one sentence explaining what you will do and why",
-  "action": "scan_repository",
-  "action_input": {{"path": "{self.repo_path}"}}
-}}"""
-
-        raw = await self._llm_call(
-            system_prompt = "You are a recon agent. Output only valid JSON.",
-            user_prompt   = prompt,
-            temperature   = 0.1,
-        )
-        return _parse_json_safe(raw, default={
-            "thought": "Scan the repository.",
+        # First iteration — just scan, no LLM call needed
+        return {
+            "thought": f"Scanning {self.repo_path} for all in-scope files.",
             "action": "scan_repository",
             "action_input": {"path": self.repo_path},
-        })
-
-    # ── Act ───────────────────────────────────────────────────────────────────
+        }
 
     async def _act(self, state: AgentState, plan: dict) -> Any:
-        import time
         action = plan.get("action", "scan_repository")
 
         if action == "stop":
@@ -104,26 +80,23 @@ Decide the next action. Respond ONLY with valid JSON, no markdown fences:
         if action == "write_repo_map":
             return await self._write_repo_map()
 
-        # Default: scan_repository — detect zip vs directory
+        # scan_repository — scan_directory auto-handles zips
         start = time.time()
-        is_zip = self.repo_path.lower().endswith(".zip")
-        if is_zip:
-            result = self._scanner.scan_zip(self.repo_path)
-        else:
-            result = self._scanner.scan_directory(self.repo_path)
+        result = self._scanner.scan_directory(self.repo_path)
         duration = int((time.time() - start) * 1000)
 
         await self._log_tool(
-            tool_name     = "file_scanner.scan_zip" if is_zip else "file_scanner.scan_directory",
-            input_summary = f"path={self.repo_path}",
-            output        = {
+            tool_name="file_scanner.scan_directory",
+            input_summary=f"path={self.repo_path}",
+            output={
                 "total_files": result.get("total_files"),
-                "languages":   result.get("languages_detected"),
-                "skipped":     result.get("skipped_files"),
+                "languages": result.get("languages_detected"),
+                "skipped": result.get("skipped_files"),
+                "source_zip": result.get("source_zip"),
             },
-            duration_ms   = duration,
-            success       = "error" not in result,
-            error         = result.get("error"),
+            duration_ms=duration,
+            success="error" not in result,
+            error=result.get("error"),
         )
 
         if "error" not in result:
@@ -132,37 +105,34 @@ Decide the next action. Respond ONLY with valid JSON, no markdown fences:
         return result
 
     async def _write_repo_map(self) -> dict:
-        """Convert raw scan result to RepoMap and write to memory."""
         raw = self._scan_result
         files = [
             FileNode(
-                path       = f["path"],
-                file_type  = f["file_type"],
-                size_bytes = f["size_bytes"],
-                is_binary  = f.get("is_binary", False),
-                metadata   = f.get("metadata", {}),
+                path=f["path"],
+                file_type=f["file_type"],
+                size_bytes=f["size_bytes"],
+                is_binary=f.get("is_binary", False),
+                metadata=f.get("metadata", {}),
             )
             for f in raw.get("files", [])
         ]
         repo_map = RepoMap(
-            root_path          = raw["root_path"],
-            files              = files,
-            total_files        = raw["total_files"],
-            languages_detected = raw["languages_detected"],
-            entry_points       = raw["entry_points"],
-            config_files       = raw["config_files"],
-            built_at           = __import__("backend.memory.models", fromlist=["_now"])._now(),
+            root_path=raw["root_path"],
+            files=files,
+            total_files=raw["total_files"],
+            languages_detected=raw["languages_detected"],
+            entry_points=raw["entry_points"],
+            config_files=raw["config_files"],
+            built_at=__import__("backend.memory.models", fromlist=["_now"])._now(),
         )
         await self.memory.set_repo_map(self.session_id, repo_map)
         return {
-            "status":       "repo_map_written",
-            "total_files":  repo_map.total_files,
-            "languages":    repo_map.languages_detected,
+            "status": "repo_map_written",
+            "total_files": repo_map.total_files,
+            "languages": repo_map.languages_detected,
             "entry_points": repo_map.entry_points,
             "config_files": repo_map.config_files,
         }
-
-    # ── Evaluate ──────────────────────────────────────────────────────────────
 
     async def _evaluate(self, state: AgentState, plan: dict, result: Any) -> dict:
         if plan.get("action") == "stop" or (
@@ -184,18 +154,16 @@ Decide the next action. Respond ONLY with valid JSON, no markdown fences:
             return {
                 "confidence": 0.4,
                 "goal_met": False,
-                "reason": "No files found in scope. Repository may be empty or all files excluded.",
-                "human_question": "No files were found in scope. Is the repository path correct?",
+                "reason": "No files found in scope.",
+                "human_question": "No files were found in scope. Is the repository path or zip correct?",
                 "human_options": ["Path is correct — continue anyway", "Stop — wrong path"],
             }
 
         return {
             "confidence": 0.95,
-            "goal_met": False,   # not done until repo_map written
+            "goal_met": False,
             "reason": f"Scan found {total} files. Will now write RepoMap to memory.",
         }
-
-    # ── Should stop ───────────────────────────────────────────────────────────
 
     async def _should_stop(self, state: AgentState, evaluation: dict) -> bool:
         if evaluation.get("goal_met"):
@@ -203,8 +171,6 @@ Decide the next action. Respond ONLY with valid JSON, no markdown fences:
         repo_map = await self.memory.get_repo_map(self.session_id)
         return repo_map is not None
 
-
-# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _parse_json_safe(raw: str, default: dict) -> dict:
     try:
