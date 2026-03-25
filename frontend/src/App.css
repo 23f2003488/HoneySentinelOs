@@ -61,6 +61,7 @@ body {
   line-height: 1;
   background: linear-gradient(135deg, var(--accent), #a855f7);
   -webkit-background-clip: text;
+   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 .logo-title {
@@ -177,6 +178,7 @@ body {
   font-size: 20px;
   background: linear-gradient(135deg, var(--accent), #a855f7);
   -webkit-background-clip: text;
+   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 .header-title { font-size: 16px; font-weight: 700; color: var(--text); letter-spacing: -0.2px; }
