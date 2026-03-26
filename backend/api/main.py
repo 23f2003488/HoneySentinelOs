@@ -15,6 +15,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
+from fastapi import Form
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
@@ -159,42 +160,40 @@ async def analyse_upload(
 
 
 @app.post("/analyse/github")
-async def analyse_github(request: AnalyseGithubRequest):
+async def analyse_github(
+    github_url: str = Form(...),
+    policy_file: Optional[UploadFile] = File(None)
+):
     session_id = str(uuid.uuid4())[:12]
-    github_url = request.github_url.strip()
+    github_url = github_url.strip()
 
     if not github_url.startswith("http"):
         raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
 
-    if not shutil.which("git"):
-        raise HTTPException(status_code=500, detail="git is not installed on the server.")
+    # --- Handle Custom Security Policy (Optional) ---
+    custom_policy_path = None
+    if policy_file and policy_file.filename.endswith((".yaml", ".yml")):
+        policy_dest = UPLOAD_DIR / f"{session_id}_policy.yaml"
+        policy_contents = await policy_file.read()
+        policy_dest.write_bytes(policy_contents)
+        custom_policy_path = str(policy_dest)
+        logger.info(f"[{session_id}] Custom security policy uploaded for GitHub repo.")
 
     clone_dir = (UPLOAD_DIR / f"{session_id}_repo").resolve()
     if clone_dir.exists():
         shutil.rmtree(clone_dir, ignore_errors=True)
 
     logger.info(f"Cloning {github_url} into {clone_dir}")
-
     try:
-        result = subprocess.run(
-            ["git", "clone", "--depth", "1", github_url, str(clone_dir)],
-            capture_output=True, text=True, timeout=120,
-        )
+        result = subprocess.run(["git", "clone", "--depth", "1", github_url, str(clone_dir)], capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
-            err = result.stderr.strip()
-            logger.error(f"Git clone failed: {err}")
-            raise HTTPException(status_code=400, detail=f"Git clone failed: {err[:400]}")
+            raise HTTPException(status_code=400, detail=f"Git clone failed: {result.stderr.strip()[:400]}")
     except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=408, detail="Git clone timed out after 120s.")
+        raise HTTPException(status_code=408, detail="Git clone timed out.")
 
-    asyncio.create_task(_run_analysis(session_id, str(clone_dir)))
+    asyncio.create_task(_run_analysis(session_id, str(clone_dir), custom_policy_path))
 
-    return {
-        "session_id": session_id,
-        "status":     "started",
-        "repo_url":   github_url,
-        "clone_dir":  str(clone_dir),
-    }
+    return {"session_id": session_id, "status": "started", "repo_url": github_url}
 
 
 @app.get("/session/{session_id}")

@@ -46,9 +46,8 @@ function useSession(sessionId) {
   return { agents, findings, questions, repoMap, connected, done };
 }
 
-// DEFINING AGENT ANATOMY (Tools, Memory, Goal)
 const AGENT_META = {
-  orchestrator: { icon: "⚙️", name: "Orchestrator", tools: ["SessionManager", "AgentDelegator"], memory: "Cosmos DB (Session Root)" },
+  orchestrator: { icon: "⚙️", name: "Orchestrator Agent", tools: ["SessionManager", "AgentDelegator"], memory: "Cosmos DB (Session Root)" },
   recon:        { icon: "🗂️", name: "Recon Agent", tools: ["FileScannerTool", "AzureSearchIndexer"], memory: "Cosmos DB (RepoMap)" },
   analysis:     { icon: "🔍", name: "Analysis Agent", tools: ["PatternDetector", "Semgrep", "Pip-Audit", "AzureSearchTool"], memory: "Cosmos DB (Findings)" },
   report:       { icon: "📄", name: "Report Agent", tools: ["RiskSynthesizer"], memory: "Cosmos DB (Read-Only All)" },
@@ -69,6 +68,38 @@ function cleanObservation(raw) {
     if (raw.length > 80) return raw.slice(0, 80) + "…";
   }
   return raw.length > 150 ? raw.slice(0, 150) + "…" : raw;
+}
+
+function buildFileTree(files) {
+  const root = {};
+  files.forEach(f => {
+    const parts = f.path.replace(/\\/g, "/").split("/");
+    let current = root;
+    parts.forEach((part, i) => {
+      if (i === parts.length - 1) {
+        current[part] = null;
+      } else {
+        current[part] = current[part] || {};
+        current = current[part];
+      }
+    });
+  });
+  return root;
+}
+
+function FileTreeNode({ node, name, depth = 0 }) {
+  const isFile = node === null;
+  const padding = depth * 16;
+  return (
+    <div>
+      <div style={{ paddingLeft: `${padding}px`, color: isFile ? "var(--text2)" : "var(--accent)", fontSize: "13px", fontFamily: "monospace", marginBottom: "6px" }}>
+        {isFile ? "📄 " : "📁 "} {name}
+      </div>
+      {!isFile && Object.entries(node).map(([childName, childNode]) => (
+        <FileTreeNode key={childName} name={childName} node={childNode} depth={depth + 1} />
+      ))}
+    </div>
+  );
 }
 
 function AgentTransparency({ state, meta }) {
@@ -102,14 +133,15 @@ function AgentCard({ state, questions, repoMap, onAnswer }) {
   const isWaiting = state.status === "waiting_for_human";
   const isDone    = state.status === "done";
   const isFailed  = state.status === "failed";
+  const [showFullTree, setShowFullTree] = useState(false);
 
   const myQuestions = Object.values(questions).filter(q => q.agent_id === state.agent_id);
   const pendingQ    = myQuestions.filter(q => q.status === "pending" || q.status === "HITLStatus.PENDING");
-
   const statusDot = isRunning ? "running" : isWaiting ? "waiting" : isDone ? "done" : isFailed ? "failed" : "idle";
+  const hasTrace = state.last_action || state.last_observation || state.thought;
 
   return (
-    <div className={`agent-card ${statusDot}`}>
+    <div className={`agent-card ${statusDot}`} id={`agent-${state.agent_type}`}>
       <div className="agent-card-header">
         <div className="agent-card-left">
           <span className="agent-emoji">{meta.icon}</span>
@@ -129,18 +161,39 @@ function AgentCard({ state, questions, repoMap, onAnswer }) {
 
         <div className="process-title">Live Execution Trace:</div>
         <div className="live-trace-box">
-          {state.last_action && <div className="trace-line"><strong>Action:</strong> {state.last_action}</div>}
-          {state.last_observation && <div className="trace-line"><strong>Observation:</strong> {cleanObservation(state.last_observation)}</div>}
-          {state.thought && <div className="trace-line highlight-thought"><strong>Thought:</strong> {state.thought}</div>}
+          {hasTrace ? (
+            <>
+              {state.last_action && <div className="trace-line"><strong>Action:</strong> {state.last_action}</div>}
+              {state.last_observation && <div className="trace-line"><strong>Observation:</strong> {cleanObservation(state.last_observation)}</div>}
+              {state.thought && <div className="trace-line highlight-thought"><strong>Thought:</strong> {state.thought}</div>}
+            </>
+          ) : (
+            <div className="terminal-loader">
+              <span className="prompt">{">"}</span> Awaiting execution trace<span className="cursor">_</span>
+            </div>
+          )}
         </div>
 
-        {/* Recon File Tree Output */}
+        {/* PURE FILE TREE OUTPUT */}
         {isDone && state.agent_type === "recon" && repoMap && (
           <div className="recon-output-box">
-            <div className="recon-title">Generated RepoMap ({repoMap.total_files} files)</div>
+            <div className="recon-title" style={{display: 'flex', justifyContent: 'space-between', marginBottom: '12px'}}>
+              <span>📁 Architecture Mapped ({repoMap.total_files} files)</span>
+              {repoMap.files.length > 6 && (
+                <span style={{cursor: 'pointer', color: 'var(--accent)', textDecoration: 'underline'}} onClick={() => setShowFullTree(!showFullTree)}>
+                  {showFullTree ? "Collapse ▲" : "Expand All ▼"}
+                </span>
+              )}
+            </div>
             <div className="recon-files">
-              {repoMap.files.slice(0, 5).map((f, i) => <div key={i}>📄 {f.path}</div>)}
-              {repoMap.files.length > 5 && <div>...and {repoMap.files.length - 5} more files</div>}
+              {Object.entries(buildFileTree(showFullTree ? repoMap.files : repoMap.files.slice(0, 6))).map(([name, node]) => (
+                <FileTreeNode key={name} name={name} node={node} />
+              ))}
+              {!showFullTree && repoMap.files.length > 6 && (
+                <div style={{ color: "var(--text3)", fontStyle: "italic", marginTop: "8px", paddingLeft: "16px" }}>
+                  ...and {repoMap.files.length - 6} more files hidden.
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -276,21 +329,19 @@ function StartScreen({ onStart }) {
     setError(""); setLoading(true);
     try {
       let res;
+      const fd = new FormData();
+      if (policyFile) fd.append("policy_file", policyFile); // Attach policy to ALL modes
+
       if (mode === "github") {
         if (!ghUrl.trim()) { setError("Please enter a GitHub URL."); setLoading(false); return; }
-        res = await fetch(`${API}/analyse/github`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ github_url: ghUrl.trim() }),
-        });
+        fd.append("github_url", ghUrl.trim());
+        res = await fetch(`${API}/analyse/github`, { method: "POST", body: fd });
       } else if (mode === "upload") {
         if (!file) { setError("Please select a codebase .zip file."); setLoading(false); return; }
-        
-        const fd = new FormData(); 
         fd.append("file", file);
-        if (policyFile) fd.append("policy_file", policyFile);
-
         res = await fetch(`${API}/analyse/upload`, { method: "POST", body: fd });
       }
+      
       const data = await res.json();
       if (!res.ok) { setError(data.detail || "Connection failed."); setLoading(false); return; }
       onStart(data.session_id);
@@ -309,49 +360,46 @@ function StartScreen({ onStart }) {
             <div className="logo-sub">Multi-Agent Security Intelligence</div>
           </div>
         </div>
-
         <p className="start-description">
-          Provide your codebase and an optional security policy. Our AI Agents will map the architecture, semantically search for vulnerabilities, and ask for business context before generating an executive report.
+          Provide your codebase. Our AI Agents will map the architecture, semantically search for vulnerabilities, and ask for business context before generating an executive report.
         </p>
 
-        <div className="mode-tabs">
+        {/* ALWAYS SHOW POLICY UPLOAD AT TOP */}
+        <div className="input-group" style={{ marginBottom: '12px' }}>
+          <label className="input-label">Custom Security Policy (Optional)</label>
+          <div className="file-zone policy-zone" style={{ padding: '12px' }} onClick={() => document.getElementById("policyfile").click()}>
+            <div className="file-zone-inner" style={{ flexDirection: 'row', justifyContent: 'center' }}>
+              {policyFile ? <><span style={{fontSize:18}}>🛡️</span><span>{policyFile.name}</span></> : <><span style={{fontSize:18}}>📄</span><span>Upload policy.yaml (Uses Universal Default if empty)</span></>}
+            </div>
+            <input id="policyfile" type="file" accept=".yaml,.yml" style={{ display: "none" }} onChange={e => setPolicyFile(e.target.files[0])} />
+          </div>
+        </div>
+
+        <label className="input-label">Select Code Source</label>
+        <div className="mode-tabs" style={{ marginTop: '4px' }}>
           <button className={`mode-tab ${mode === "upload" ? "active" : ""}`} onClick={() => setMode("upload")}>📦 Upload Code (Zip)</button>
           <button className={`mode-tab ${mode === "github" ? "active" : ""}`} onClick={() => setMode("github")}>🔗 GitHub URL</button>
         </div>
 
         {mode === "github" && (
-          <div className="input-group">
+          <div className="input-group" style={{ marginTop: '8px' }}>
             <input className="main-input" placeholder="https://github.com/owner/repo" value={ghUrl} onChange={e => setGhUrl(e.target.value)} onKeyDown={e => e.key === "Enter" && launch()} autoFocus />
           </div>
         )}
         
         {mode === "upload" && (
-          <>
-            <div className="input-group">
-              <label className="input-label">1. Codebase (Required)</label>
-              <div className="file-zone" onClick={() => document.getElementById("zipfile").click()}>
-                <div className="file-zone-inner">
-                  {file ? <><span style={{fontSize:24}}>📦</span><span>{file.name}</span></> : <><span style={{fontSize:24}}>⬆️</span><span>Select .zip codebase</span></>}
-                </div>
-                <input id="zipfile" type="file" accept=".zip" style={{ display: "none" }} onChange={e => setFile(e.target.files[0])} />
+          <div className="input-group" style={{ marginTop: '8px' }}>
+            <div className="file-zone" onClick={() => document.getElementById("zipfile").click()}>
+              <div className="file-zone-inner">
+                {file ? <><span style={{fontSize:24}}>📦</span><span>{file.name}</span></> : <><span style={{fontSize:24}}>⬆️</span><span>Select .zip codebase</span></>}
               </div>
+              <input id="zipfile" type="file" accept=".zip" style={{ display: "none" }} onChange={e => setFile(e.target.files[0])} />
             </div>
-
-            <div className="input-group">
-              <label className="input-label">2. Custom Security Policy (Optional)</label>
-              <div className="file-zone policy-zone" onClick={() => document.getElementById("policyfile").click()}>
-                <div className="file-zone-inner">
-                  {policyFile ? <><span style={{fontSize:20}}>🛡️</span><span>{policyFile.name}</span></> : <><span style={{fontSize:20}}>📄</span><span>Select policy.yaml (Uses default if empty)</span></>}
-                </div>
-                <input id="policyfile" type="file" accept=".yaml,.yml" style={{ display: "none" }} onChange={e => setPolicyFile(e.target.files[0])} />
-              </div>
-            </div>
-          </>
+          </div>
         )}
 
         {error && <div className="error-banner">{error}</div>}
-
-        <button className="launch-button" onClick={launch} disabled={loading}>
+        <button className="launch-button" onClick={launch} disabled={loading} style={{ marginTop: '8px' }}>
           {loading ? <><div className="btn-spinner" /> Booting Agents...</> : "🚀 Initialize Agentic Analysis"}
         </button>
       </div>
@@ -379,12 +427,19 @@ export default function App() {
           <span className="header-hex">⬡</span>
           <span className="header-title">HoneySentinel-OS</span>
         </div>
+        <div className="app-header-center">
+          <div className={`conn-dot ${connected ? "green" : "gray"}`} />
+          <span className="conn-label">
+            {done ? "Analysis Complete" : connected ? "Agents Active" : "Connecting..."}
+          </span>
+        </div>
         <button className="header-new" onClick={() => setSessionId(null)}>New Session</button>
       </div>
 
-      <div className="main-scroll">
-        <div className="command-center">
+      <div className="main-scroll" style={{ position: 'relative' }}>
+        <div className="command-center" style={{ position: 'relative', zIndex: 1 }}>
           
+          {/* TOP HUB */}
           {orchestrator ? (
             <div className="orchestrator-hub">
               <AgentCard state={orchestrator} questions={questions} onAnswer={handleAnswer} repoMap={null} />
@@ -393,12 +448,30 @@ export default function App() {
              <div className="waiting-start"><div className="waiting-spinner" /><span>Booting Orchestrator...</span></div>
           )}
 
+          {/* THE NEW SHARED MEMORY VISUAL */}
+          {orchestrator && (
+            <div className="shared-memory-hub">
+              <div className="flow-arrow">⬇ Orchestrator delegates tasks & updates memory</div>
+              <div className="memory-database-icon">
+                <div className="memory-glow" />
+                <span style={{fontSize: '32px', position: 'relative', zIndex: 2}}>🗄️</span>
+                <div className="memory-text">
+                  <div className="memory-title">Shared Agent Memory</div>
+                  <div className="memory-sub">Powered by Azure Cosmos DB</div>
+                </div>
+              </div>
+              <div className="flow-arrow">⬇ Agents read/write to memory asynchronously</div>
+            </div>
+          )}
+
+          {/* MIDDLE GRID */}
           <div className="agents-grid">
             {subAgents.map((a) => (
               <AgentCard key={a.agent_id} state={a} questions={questions} repoMap={repoMap} onAnswer={handleAnswer} />
             ))}
           </div>
 
+          {/* BOTTOM RESULTS */}
           <div className="results-container">
             {findings.length > 0 && (
               <div className="inline-section flex-1">

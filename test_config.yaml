@@ -1,0 +1,8 @@
+# A completely broken, invalid policy file to test Orchestrator robustness
+version: "2.0"
+invalid_section:
+  - "This is not a real policy"
+  - "The orchestrator should catch this and fallback to the default"
+rules:
+  - id: FAKE_RULE
+    enabled: true

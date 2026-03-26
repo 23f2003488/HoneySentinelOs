@@ -3,3 +3,5 @@ frontend/node_modules/
 .env
 
 __pycache__
+
+repomix-output.xml
