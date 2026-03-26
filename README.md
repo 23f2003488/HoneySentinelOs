@@ -1,9 +1,9 @@
 
-\<div align="center"\>
-\<img src="[https://img.shields.io/badge/Status-Hackathon\_Ready-success](https://img.shields.io/badge/Status-Hackathon_Ready-success)" alt="Status"\>
-\<img src="[https://img.shields.io/badge/Powered\_by-Azure\_OpenAI-blue](https://img.shields.io/badge/Powered_by-Azure_OpenAI-blue)" alt="Azure OpenAI"\>
-\<img src="[https://img.shields.io/badge/Database-Azure\_Cosmos\_DB-blueviolet](https://img.shields.io/badge/Database-Azure_Cosmos_DB-blueviolet)" alt="Cosmos"\>
-\</div\>
+<div align="center"\>
+    <img src="[https://img.shields.io/badge/Status-Hackathon\_Ready-success](https://img.shields.io/badge/Status-Hackathon_Ready-success)" alt="Status"\>
+    <img src="[https://img.shields.io/badge/Powered\_by-Azure\_OpenAI-blue](https://img.shields.io/badge/Powered_by-Azure_OpenAI-blue)" alt="Azure OpenAI"\>
+    <img src="[https://img.shields.io/badge/Database-Azure\_Cosmos\_DB-blueviolet](https://img.shields.io/badge/Database-Azure_Cosmos_DB-blueviolet)" alt="Cosmos"\>
+</div\>
 
 # ⬡ HoneySentinel-OS
 
