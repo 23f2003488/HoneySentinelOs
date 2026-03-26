@@ -293,7 +293,7 @@ Rules:
         q = HITLQuestion(
             agent_id = self.agent_id,
             question = question_text,
-            context  = state.last_observation[:500],
+            context  = evaluation.get("context", state.last_observation[:500]), 
             options  = evaluation.get("human_options", []),
         )
         await self.memory.push_question(self.session_id, q)

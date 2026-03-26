@@ -603,3 +603,187 @@ body {
   border-radius: 4px;
   letter-spacing: 0.04em;
 }
+
+
+/* --- NEW PREMIUM HACKATHON STYLES --- */
+
+/* Agent Identity Transparency Panel */
+.agent-transparency-panel {
+  background: rgba(108, 99, 255, 0.05);
+  border: 1px solid rgba(108, 99, 255, 0.2);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.agent-role-badge {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text2);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  margin-left: 8px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.agent-goal-box {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.process-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+/* Custom Policy Upload Box */
+.input-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text2);
+  margin-bottom: -4px;
+}
+
+.policy-zone {
+  padding: 16px;
+  border-color: rgba(108, 99, 255, 0.3);
+  background: rgba(108, 99, 255, 0.02);
+}
+.policy-zone:hover {
+  border-color: var(--accent);
+  background: rgba(108, 99, 255, 0.1);
+}
+
+/* CWE / OWASP Badge Fixes */
+.finding-cwe, .finding-owasp {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  font-family: 'Menlo', monospace;
+}
+.finding-cwe { background: rgba(108,99,255,0.15); color: #a78bfa; }
+.finding-owasp { background: rgba(249,115,22,0.15); color: #fb923c; }
+
+/* --- COMMAND CENTER LAYOUT --- */
+.command-center {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.orchestrator-hub {
+  width: 100%;
+}
+
+.agents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+.results-container {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+@media (max-width: 900px) {
+  .results-container { flex-direction: column; }
+}
+
+.flex-1 { flex: 1; min-width: 0; }
+
+/* --- AGENT TRANSPARENCY PANEL --- */
+.agent-transparency-panel {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+  font-size: 12px;
+}
+
+.transparency-grid {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+.t-col { display: flex; flex-direction: column; gap: 2px; }
+.t-row { display: flex; align-items: center; gap: 8px; }
+.mt-2 { margin-top: 8px; }
+
+.t-label { color: var(--text3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.t-val { color: var(--text); font-weight: 500; }
+.state-running { color: var(--accent); }
+.state-waiting_for_human { color: var(--gold); }
+.state-done { color: var(--green); }
+
+.tools-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.tool-badge {
+  background: rgba(108, 99, 255, 0.15);
+  color: #a78bfa;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.goal-text { color: var(--text2); font-style: italic; }
+
+/* --- LIVE TRACE BOX --- */
+.live-trace-box {
+  background: #111;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.trace-line strong { color: var(--text); }
+.highlight-thought { color: var(--accent); font-weight: bold; }
+
+/* --- RECON OUTPUT BOX --- */
+.recon-output-box {
+  background: rgba(68, 187, 119, 0.05);
+  border: 1px dashed rgba(68, 187, 119, 0.3);
+  padding: 10px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+.recon-title { font-size: 12px; font-weight: bold; color: var(--green); margin-bottom: 6px; }
+.recon-files { font-family: monospace; font-size: 11px; color: var(--text2); display: flex; flex-direction: column; gap: 4px; }
+
+/* --- HITL CODE SNIPPET --- */
+.hitl-code-snippet {
+  background: #1e1e1e;
+  border-left: 3px solid var(--gold);
+  color: #d4d4d4;
+  padding: 10px;
+  font-family: 'Cascadia Code', 'Menlo', monospace;
+  font-size: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin-top: 8px;
+  margin-bottom: 12px;
+}

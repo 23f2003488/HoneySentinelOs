@@ -89,7 +89,7 @@ class ReportAgent(BaseAgent):
 
         prompt = f"""{self._base_system_prompt()}
 
-You are generating the final security report. Here is all available data:
+You are generating the final Executive Security Report. Here is all available data:
 
 PROJECT: {self.policy.context.project_name}
 FILES SCANNED: {repo_map.total_files if repo_map else 'unknown'}
@@ -98,21 +98,22 @@ TOTAL FINDINGS: {len(findings)}
 FINDINGS:
 {json.dumps(finding_summaries, indent=2)[:4000]}
 
-Generate a structured security report. Respond ONLY with valid JSON:
+Generate a highly professional, CISO-level security report. It must appeal to both technical engineers and non-technical executives.
+Respond ONLY with valid JSON:
 {{
-  "executive_summary": "2-3 sentences for non-technical stakeholders",
+  "executive_summary": "A powerful 3-4 sentence summary explaining the overall security posture, business impact, and context.",
   "risk_rating": "critical|high|medium|low",
   "critical_findings": ["finding_id list"],
   "high_findings": ["finding_id list"],
   "medium_findings": ["finding_id list"],
   "low_findings": ["finding_id list"],
   "top_recommendations": [
-    {{"priority": 1, "action": "...", "rationale": "..."}}
+    {{"priority": 1, "action": "Technical fix instruction", "rationale": "Business reason why this matters (e.g., 'Prevents PII data breach')"}}
   ],
   "files_with_most_issues": ["file paths"],
-  "most_common_weakness": "rule_id",
+  "most_common_weakness": "CWE or rule_id",
   "remediation_effort": "low|medium|high",
-  "conclusion": "One paragraph conclusion"
+  "conclusion": "Final concluding paragraph regarding deployment readiness."
 }}"""
 
         raw = await self._llm_call(

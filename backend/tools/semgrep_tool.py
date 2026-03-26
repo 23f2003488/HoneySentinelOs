@@ -49,26 +49,31 @@ class SemgrepTool:
 
     def _run_semgrep(self, repo_path: str, start: float) -> dict:
         try:
+            # We add --no-git-ignore and --metrics=off for better reliability in temp folders
             result = subprocess.run(
                 [
                     "semgrep",
+                    "scan",
                     "--config", "auto",
                     "--json",
                     "--quiet",
-                    "--timeout", "60",
+                    "--metrics=off",
+                    "--no-git-ignore", 
                     repo_path,
                 ],
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=300, # Increased timeout for larger repos
             )
+            
             raw = json.loads(result.stdout or "{}")
             findings = []
             for r in raw.get("results", []):
+                # Map semgrep rule ID to our policy IDs if possible, else keep generic
                 rule_id = r.get("check_id", "UNKNOWN").split(".")[-1].upper()
                 findings.append({
                     "rule_id":   rule_id,
-                    "severity":  r.get("extra", {}).get("severity", "medium").lower(),
+                    "severity":  r.get("extra", {}).get("severity", "WARNING").lower(),
                     "file":      r.get("path", ""),
                     "line":      r.get("start", {}).get("line", 0),
                     "message":   r.get("extra", {}).get("message", ""),
@@ -85,6 +90,9 @@ class SemgrepTool:
                 "duration_ms": duration_ms,
                 "error": None,
             }
+        except subprocess.TimeoutExpired:
+            logger.error("Semgrep timed out after 300s — falling back to pattern detector")
+            return self._run_pattern_fallback(repo_path, start)
         except Exception as e:
             logger.error(f"Semgrep failed: {e} — falling back to pattern detector")
             return self._run_pattern_fallback(repo_path, start)

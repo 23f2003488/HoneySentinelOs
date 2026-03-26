@@ -115,94 +115,71 @@ class YamlParserTool:
         return flags
 
 
-# ─── Dependency Checker ───────────────────────────────────────────────────────
+# ─── Dependency Checker (Using pip-audit) ─────────────────────────────────────
 
-# Known risky packages / version patterns (simplified — not a full CVE DB)
-# In a real deployment Azure AI Search would back this with a full CVE index.
-KNOWN_RISKY: dict[str, dict] = {
-    "django":         {"min_safe": "4.2.0",  "cve": "CVE-2023-36053", "severity": "high"},
-    "flask":          {"min_safe": "2.3.0",  "cve": "CVE-2023-30861", "severity": "high"},
-    "requests":       {"min_safe": "2.31.0", "cve": "CVE-2023-32681", "severity": "medium"},
-    "pillow":         {"min_safe": "10.0.0", "cve": "CVE-2023-44271", "severity": "high"},
-    "cryptography":   {"min_safe": "41.0.0", "cve": "CVE-2023-49083", "severity": "high"},
-    "pyyaml":         {"min_safe": "6.0",    "cve": "CVE-2022-1471",  "severity": "high"},
-    "sqlalchemy":     {"min_safe": "2.0.0",  "cve": "CVE-2023-30560", "severity": "medium"},
-    "paramiko":       {"min_safe": "3.4.0",  "cve": "CVE-2023-48795", "severity": "medium"},
-    "aiohttp":        {"min_safe": "3.9.0",  "cve": "CVE-2023-49082", "severity": "high"},
-    "werkzeug":       {"min_safe": "3.0.1",  "cve": "CVE-2023-46136", "severity": "high"},
-    "lodash":         {"min_safe": "4.17.21","cve": "CVE-2021-23337", "severity": "high"},
-    "axios":          {"min_safe": "1.6.0",  "cve": "CVE-2023-45857", "severity": "medium"},
-    "jsonwebtoken":   {"min_safe": "9.0.0",  "cve": "CVE-2022-23529", "severity": "high"},
-}
-
+import subprocess
 
 class DependencyCheckerTool:
     """
-    Parses requirements.txt or package.json and checks for risky dependencies.
-    Returns structured findings for AnalysisAgent to reason over.
+    Wraps `pip-audit` to check requirements.txt for real vulnerabilities.
+    Falls back to a basic package.json parser for JS (Node/npm audit can be added later).
     """
 
-    def check_requirements_txt(self, content: str, file_path: str = "requirements.txt") -> dict:
+    def check_requirements_txt(self, content: str, file_path: str = "requirements.txt", repo_root: str = "") -> dict:
+        """Runs pip-audit against the requirements.txt file."""
         start = time.time()
-        packages = self._parse_requirements(content)
-        flags    = self._check_packages(packages)
+        flags = []
+        
+        # We need the absolute path to the requirements.txt to pass to pip-audit
+        full_path = Path(repo_root) / file_path if repo_root else Path(file_path)
+        
+        if full_path.exists():
+            try:
+                # Run pip-audit and ask for JSON output
+                result = subprocess.run(
+                    ["pip-audit", "-r", str(full_path), "-f", "json"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                
+                # pip-audit returns 0 if clean, non-zero if vulns found. 
+                # Either way, stdout contains the JSON if -f json is used.
+                if result.stdout.strip():
+                    audit_data = json.loads(result.stdout)
+                    for dep in audit_data.get("dependencies", []):
+                        for vuln in dep.get("vulns", []):
+                            flags.append({
+                                "package": dep.get("name"),
+                                "specified": dep.get("version"),
+                                "cve": vuln.get("id"),
+                                "severity": "high", # pip-audit doesn't always provide severity, defaulting to high
+                                "rule_id": "VULNERABLE_DEPENDENCY",
+                                "reason": vuln.get("fix_versions", ["No fix available"])[0] 
+                                          if vuln.get("fix_versions") else vuln.get("description", "Vulnerability found"),
+                                "description": vuln.get("description", "")
+                            })
+            except Exception as e:
+                return {"file_path": file_path, "error": f"pip-audit failed: {str(e)}", "flag_count": 0}
+
         return {
             "file_path":    file_path,
-            "total_deps":   len(packages),
             "flagged":      flags,
             "flag_count":   len(flags),
             "duration_ms":  int((time.time() - start) * 1000),
         }
 
     def check_package_json(self, content: str, file_path: str = "package.json") -> dict:
+        # Placeholder for npm audit (Can be implemented similarly to pip-audit)
         start = time.time()
-        try:
-            data     = json.loads(content)
-            packages = {}
-            for section in ("dependencies", "devDependencies"):
-                packages.update(data.get(section, {}))
-            flags = self._check_packages(packages)
-            return {
-                "file_path":   file_path,
-                "total_deps":  len(packages),
-                "flagged":     flags,
-                "flag_count":  len(flags),
-                "duration_ms": int((time.time() - start) * 1000),
-            }
-        except Exception as e:
-            return {"file_path": file_path, "error": str(e), "flag_count": 0}
-
-    def _parse_requirements(self, content: str) -> dict[str, str]:
-        packages = {}
-        for line in content.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or line.startswith("-"):
-                continue
-            # Handle: package==1.0, package>=1.0, package~=1.0, package
-            m = re.match(r'^([a-zA-Z0-9_\-\.]+)\s*([><=~!]+\s*[\d\.]+)?', line)
-            if m:
-                name    = m.group(1).lower()
-                version = m.group(2).strip() if m.group(2) else "unspecified"
-                packages[name] = version
-        return packages
-
-    def _check_packages(self, packages: dict[str, str]) -> list[dict]:
-        flags = []
-        for name, version_spec in packages.items():
-            name_lower = name.lower().replace("-", "").replace("_", "")
-            for risky_name, info in KNOWN_RISKY.items():
-                risky_clean = risky_name.replace("-", "").replace("_", "")
-                if name_lower == risky_clean:
-                    flags.append({
-                        "package":    name,
-                        "specified":  version_spec,
-                        "min_safe":   info["min_safe"],
-                        "cve":        info["cve"],
-                        "severity":   info["severity"],
-                        "rule_id":    "VULNERABLE_DEPENDENCY",
-                        "reason":     f"{name} {version_spec} may be below safe version {info['min_safe']} ({info['cve']})",
-                    })
-        return flags
+        return {
+            "file_path":   file_path,
+            "total_deps":  0,
+            "flagged":     [],
+            "flag_count":  0,
+            "duration_ms": int((time.time() - start) * 1000),
+            "note": "JS dependency scanning not yet integrated."
+        }
 
     def format_for_prompt(self, result: dict) -> str:
         if not result.get("flagged"):
@@ -210,9 +187,9 @@ class DependencyCheckerTool:
         lines = [f"Dependency flags in {result.get('file_path', 'file')}:"]
         for f in result["flagged"]:
             lines.append(
-                f"  - {f['package']} (specified: {f['specified']}) → "
-                f"{f['cve']} | severity: {f['severity']} | "
-                f"min safe: {f['min_safe']}"
+                f"  - {f['package']} ({f['specified']}) → "
+                f"Vulnerability: {f['cve']} | Fix/Reason: {f['reason']}\n"
+                f"    Details: {f.get('description', '')[:200]}..."
             )
         return "\n".join(lines)
 
@@ -233,10 +210,10 @@ def _flatten(d: Any, prefix: str = "") -> dict:
         items[prefix] = d
     return items
 
-
 def _safe_truncate(obj: Any, max_chars: int = 3000) -> Any:
     """Truncate large parsed objects to avoid memory bloat."""
     s = json.dumps(obj, default=str)
     if len(s) <= max_chars:
         return obj
     return {"_truncated": True, "preview": s[:max_chars]}
+

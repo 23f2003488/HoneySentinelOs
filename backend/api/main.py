@@ -1,12 +1,11 @@
 """
 HoneySentinel-OS — FastAPI Application
-REST endpoints + WebSocket for live agent streaming.
+REST endpoints for agent management, cloud storage, and dynamic policy handling.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import shutil
@@ -18,16 +17,23 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+from azure.storage.blob import BlobServiceClient
 
 load_dotenv()
 
 from backend.memory import get_memory_store, SessionStatus
 from backend.policy import get_policy_engine
 
+# Silence noisy HTTP logs from Azure SDKs so you can see your agent's reasoning
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+logging.getLogger("azure.cosmos").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 POLICY_PATH = Path(os.getenv("POLICY_PATH", "config/security_policy.yaml"))
@@ -40,6 +46,7 @@ logger.info(f"Upload dir: {UPLOAD_DIR}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Load the default universal policy at startup
     get_policy_engine(POLICY_PATH)
     logger.info("HoneySentinel-OS API ready")
     yield
@@ -53,46 +60,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-class ConnectionManager:
-    def __init__(self):
-        self._connections: dict[str, list[WebSocket]] = {}
-
-    async def connect(self, session_id: str, ws: WebSocket) -> None:
-        await ws.accept()
-        self._connections.setdefault(session_id, []).append(ws)
-
-    def disconnect(self, session_id: str, ws: WebSocket) -> None:
-        conns = self._connections.get(session_id, [])
-        if ws in conns:
-            conns.remove(ws)
-
-    async def broadcast(self, session_id: str, data: dict) -> None:
-        conns = self._connections.get(session_id, [])
-        dead = []
-        for ws in conns:
-            try:
-                await ws.send_text(json.dumps(data))
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            conns.remove(ws)
-
-
-manager = ConnectionManager()
-
-
-def _make_change_handler(session_id: str):
-    async def handler(event):
-        await manager.broadcast(session_id, {
-            "type":      "agent_update",
-            "namespace": event.namespace,
-            "key":       event.key,
-            "data":      event.data,
-            "timestamp": event.timestamp,
-        })
-    return handler
 
 
 class AnalyseRepoRequest(BaseModel):
@@ -110,8 +77,12 @@ class AnswerRequest(BaseModel):
 @app.get("/health")
 async def health():
     policy = get_policy_engine()
-    return {"status": "ok", "policy": policy.summary(), "version": "1.0.0",
-            "upload_dir": str(UPLOAD_DIR)}
+    return {
+        "status": "ok", 
+        "policy": policy.summary(), 
+        "version": "1.0.0",
+        "upload_dir": str(UPLOAD_DIR)
+    }
 
 
 @app.post("/analyse/repo")
@@ -120,25 +91,71 @@ async def analyse_repo(request: AnalyseRepoRequest):
     repo_path  = request.repo_path
     if not Path(repo_path).exists():
         raise HTTPException(status_code=400, detail=f"Path not found: {repo_path}")
-    memory = get_memory_store()
-    memory.subscribe(_make_change_handler(session_id))
+    
     asyncio.create_task(_run_analysis(session_id, repo_path))
-    return {"session_id": session_id, "status": "started", "ws_url": f"/ws/{session_id}"}
+    return {"session_id": session_id, "status": "started"}
 
 
 @app.post("/analyse/upload")
-async def analyse_upload(file: UploadFile = File(...)):
+async def analyse_upload(
+    file: UploadFile = File(...),
+    policy_file: Optional[UploadFile] = File(None)
+):
+    """
+    Accepts a .zip file of the codebase and an optional custom security_policy.yaml.
+    Uploads the zip to Azure Blob Storage for cloud persistence.
+    """
     if not file.filename.endswith(".zip"):
         raise HTTPException(status_code=400, detail="Only .zip files are supported.")
+    
     session_id = str(uuid.uuid4())[:12]
-    dest = UPLOAD_DIR / f"{session_id}_{file.filename}"
+    blob_name = f"{session_id}_{file.filename}"
+    
+    # --- 1. Handle Custom Security Policy (Optional) ---
+    custom_policy_path = None
+    if policy_file and policy_file.filename.endswith((".yaml", ".yml")):
+        policy_dest = UPLOAD_DIR / f"{session_id}_policy.yaml"
+        policy_contents = await policy_file.read()
+        policy_dest.write_bytes(policy_contents)
+        custom_policy_path = str(policy_dest)
+        logger.info(f"[{session_id}] Custom security policy uploaded and applied.")
+
     contents = await file.read()
+
+    # --- 2. Upload codebase to Azure Blob Storage ---
+    conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "scanned-repos")
+    
+    if not conn_str:
+        logger.error("🚨 AZURE_STORAGE_CONNECTION_STRING is missing from .env!")
+    else:
+        try:
+            logger.info("Attempting to connect to Azure Blob Storage...")
+            blob_service_client = BlobServiceClient.from_connection_string(conn_str)
+            container_client = blob_service_client.get_container_client(container_name)
+            
+            # Auto-create the container if it doesn't exist
+            if not container_client.exists():
+                logger.info(f"Creating new Blob container: {container_name}")
+                container_client.create_container()
+                
+            blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+            blob_client.upload_blob(contents, overwrite=True)
+            logger.info(f"✅ [{session_id}] Uploaded {blob_name} to Azure Blob Storage successfully!")
+            
+        except Exception as e:
+            logger.error(f"🚨 AZURE BLOB STORAGE UPLOAD FAILED: {str(e)}")
+            # We log the error but do not raise an exception. 
+            # This ensures the Hackathon demo keeps running locally even if the cloud upload fails!
+
+    # --- 3. Save locally for the Agent Tools to scan ---
+    dest = UPLOAD_DIR / blob_name
     dest.write_bytes(contents)
-    memory = get_memory_store()
-    memory.subscribe(_make_change_handler(session_id))
-    asyncio.create_task(_run_analysis(session_id, str(dest)))
-    return {"session_id": session_id, "status": "started",
-            "filename": file.filename, "ws_url": f"/ws/{session_id}"}
+    
+    # --- 4. Start Analysis in Background ---
+    asyncio.create_task(_run_analysis(session_id, str(dest), custom_policy_path))
+    
+    return {"session_id": session_id, "status": "started", "filename": file.filename}
 
 
 @app.post("/analyse/github")
@@ -152,7 +169,6 @@ async def analyse_github(request: AnalyseGithubRequest):
     if not shutil.which("git"):
         raise HTTPException(status_code=500, detail="git is not installed on the server.")
 
-    # Always use resolved absolute path — critical on Windows
     clone_dir = (UPLOAD_DIR / f"{session_id}_repo").resolve()
     if clone_dir.exists():
         shutil.rmtree(clone_dir, ignore_errors=True)
@@ -171,8 +187,6 @@ async def analyse_github(request: AnalyseGithubRequest):
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=408, detail="Git clone timed out after 120s.")
 
-    memory = get_memory_store()
-    memory.subscribe(_make_change_handler(session_id))
     asyncio.create_task(_run_analysis(session_id, str(clone_dir)))
 
     return {
@@ -180,7 +194,6 @@ async def analyse_github(request: AnalyseGithubRequest):
         "status":     "started",
         "repo_url":   github_url,
         "clone_dir":  str(clone_dir),
-        "ws_url":     f"/ws/{session_id}",
     }
 
 
@@ -222,10 +235,8 @@ async def answer_hitl(session_id: str, question_id: str, body: AnswerRequest):
         raise HTTPException(status_code=404, detail="Question not found")
     if q.answer:
         raise HTTPException(status_code=400, detail="Already answered")
+    
     await memory.answer_question(session_id, question_id, body.answer)
-    await manager.broadcast(session_id, {
-        "type": "hitl_answered", "question_id": question_id, "answer": body.answer,
-    })
     return {"status": "answered", "question_id": question_id}
 
 
@@ -243,26 +254,12 @@ async def get_report(session_id: str):
     return results[-1].output
 
 
-@app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    await manager.connect(session_id, websocket)
-    memory = get_memory_store()
-    snap   = await memory.snapshot(session_id)
-    await websocket.send_text(json.dumps({"type": "snapshot", "data": snap}))
-    try:
-        while True:
-            await asyncio.sleep(30)
-            await websocket.send_text(json.dumps({"type": "ping"}))
-    except WebSocketDisconnect:
-        manager.disconnect(session_id, websocket)
-
-
-async def _run_analysis(session_id: str, path: str) -> None:
+async def _run_analysis(session_id: str, path: str, custom_policy_path: str = None) -> None:
     from backend.agents.orchestrator import OrchestratorAgent
     try:
-        orch = OrchestratorAgent(session_id=session_id, repo_path=path)
+        # Pass the custom policy to the Orchestrator if the user uploaded one
+        orch = OrchestratorAgent(session_id=session_id, repo_path=path, policy_path=custom_policy_path)
         await orch.run()
-        await manager.broadcast(session_id, {"type": "analysis_complete", "session": session_id})
+        logger.info(f"[{session_id}] Analysis complete")
     except Exception as e:
         logger.exception(f"[{session_id}] Analysis failed")
-        await manager.broadcast(session_id, {"type": "error", "error": str(e)})

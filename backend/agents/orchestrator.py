@@ -37,11 +37,19 @@ class OrchestratorAgent:
         5. Mark session done
     """
 
-    def __init__(self, session_id: str, repo_path: str):
+    def __init__(self, session_id: str, repo_path: str, policy_path: str = None):
         self.session_id = session_id
         self.repo_path  = str(Path(repo_path).resolve())
         self.memory     = get_memory_store()
-        self.policy     = get_policy_engine()
+        
+        # Load custom policy if provided, otherwise load default
+        if policy_path:
+            from backend.policy import PolicyEngine
+            self.policy = PolicyEngine(Path(policy_path)).load()
+            logger.info(f"Loaded custom policy for session {session_id}")
+        else:
+            self.policy = get_policy_engine()
+            
         self._report: dict = {}
 
     async def run(self) -> dict:

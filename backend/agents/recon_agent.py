@@ -15,6 +15,7 @@ from typing import Any
 from backend.agents.base_agent import BaseAgent, _truncate
 from backend.memory import AgentState, RepoMap, FileNode
 from backend.tools import FileScannerTool
+from backend.tools.azure_search_tool import AzureSearchTool
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,22 @@ class ReconAgent(BaseAgent):
         # scan_repository — scan_directory auto-handles zips
         start = time.time()
         result = self._scanner.scan_directory(self.repo_path)
+        # --- NEW: PUSH TO AZURE AI SEARCH ---
+        try:
+            search_tool = AzureSearchTool()
+            if search_tool.enabled:
+                docs_to_index = []
+                # Read content for the files to index them
+                for f in result.get("files", []):
+                    if not f.get("is_binary"):
+                        fc = self._scanner.read_file_content(result["root_path"], f["path"])
+                        if "content" in fc:
+                            docs_to_index.append({"path": f["path"], "content": fc["content"]})
+                
+                search_tool.index_codebase(docs_to_index)
+        except Exception as e:
+            logger.warning(f"Failed to push to Azure Search: {e}")
+        # -------------------------------------
         duration = int((time.time() - start) * 1000)
 
         await self._log_tool(

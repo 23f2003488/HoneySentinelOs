@@ -4,24 +4,22 @@
 version: "2.0"
 
 context:
-  project_name: "My Project"
-  project_type: "web_application"
-  language_stack:
-    - python
-    - javascript
-  framework: "fastapi"
-  authentication_type: "jwt"
-  data_sensitivity: "high"
-  deployment_target: "cloud"
+  project_name: "Generic Software Project"
+  project_type: "application"
+  language_stack: ["python", "javascript", "typescript", "java", "go", "csharp"]
+  framework: "auto-detect"
+  authentication_type: "standard (JWT/OAuth/Session)"
+  data_sensitivity: "medium to high"
+  deployment_target: "cloud or on-premise"
   has_database: true
-  database_type: "postgresql"
+  database_type: "sql/nosql"
   exposes_public_api: true
   handles_pii: true
 
 agents:
   # Set to 0.95 — guarantees HITL triggers for demo
-  # Every finding below 95% confidence will pause and ask the human
-  confidence_threshold: 0.95
+  # Every finding below 90% confidence will pause and ask the human
+  confidence_threshold: 0.90
   max_iterations: 50
   max_findings: 50
   require_fp_reasoning: true
