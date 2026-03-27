@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const API = "http://localhost:8000";
+const API = "https://honeysentinel-api.redglacier-631cc2e6.centralindia.azurecontainerapps.io";
 
 function useSession(sessionId) {
   const [agents, setAgents] = useState({});
