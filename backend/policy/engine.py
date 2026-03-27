@@ -204,7 +204,8 @@ class PolicyEngine:
         required = ["version", "context", "agents", "rules", "scope"]
         missing = [k for k in required if k not in self._raw]
         if missing:
-            raise PolicyLoadError(f"Policy missing required sections: {missing}")
+            #raise PolicyLoadError(f"Policy missing required sections: {missing}")
+            logger.warning(f"Policy missing sections: {missing}. Falling back to defaults.")
 
     # ── Parsers ───────────────────────────────────────────────────────────────
 

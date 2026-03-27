@@ -177,23 +177,13 @@ function AgentCard({ state, questions, repoMap, onAnswer }) {
         {/* PURE FILE TREE OUTPUT */}
         {isDone && state.agent_type === "recon" && repoMap && (
           <div className="recon-output-box">
-            <div className="recon-title" style={{display: 'flex', justifyContent: 'space-between', marginBottom: '12px'}}>
+            <div className="recon-title">
               <span>📁 Architecture Mapped ({repoMap.total_files} files)</span>
-              {repoMap.files.length > 6 && (
-                <span style={{cursor: 'pointer', color: 'var(--accent)', textDecoration: 'underline'}} onClick={() => setShowFullTree(!showFullTree)}>
-                  {showFullTree ? "Collapse ▲" : "Expand All ▼"}
-                </span>
-              )}
             </div>
             <div className="recon-files">
-              {Object.entries(buildFileTree(showFullTree ? repoMap.files : repoMap.files.slice(0, 6))).map(([name, node]) => (
+              {Object.entries(buildFileTree(repoMap.files)).map(([name, node]) => (
                 <FileTreeNode key={name} name={name} node={node} />
               ))}
-              {!showFullTree && repoMap.files.length > 6 && (
-                <div style={{ color: "var(--text3)", fontStyle: "italic", marginTop: "8px", paddingLeft: "16px" }}>
-                  ...and {repoMap.files.length - 6} more files hidden.
-                </div>
-              )}
             </div>
           </div>
         )}
