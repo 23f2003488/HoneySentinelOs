@@ -27,3 +27,4 @@ pip-audit>=2.7.3                # Software Composition Analysis (SCA) for depend
 pyyaml>=6.0.1                   # Parsing security_policy.yaml
 python-dotenv>=1.0.1            # Loading .env variables securely
 aiofiles>=23.2.1                # Async file I/O operations
+aiohttp>=3.9.0   
