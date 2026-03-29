@@ -293,13 +293,26 @@ function FindingCard({ f }) {
 function ReportCard({ sessionId, visible }) {
   const [report, setReport] = useState(null);
   
+  // This interval will poll for the report until it exists
   useEffect(() => {
-    if (visible) {
-      fetch(`${API}/session/${sessionId}/report`).then(r => r.json()).then(d => { if (d.executive_summary) setReport(d); });
-    }
+    if (!visible) return;
+
+    const fetchReport = async () => {
+      const res = await fetch(`${API}/session/${sessionId}/report`);
+      const data = await res.json();
+      // If we get an executive_summary, we have the full report
+      if (data && data.executive_summary) {
+        setReport(data);
+      }
+    };
+
+    const interval = setInterval(fetchReport, 2000);
+    fetchReport(); // Initial call
+    
+    return () => clearInterval(interval);
   }, [visible, sessionId]);
 
-  if (!visible || !report) return null;
+  if (!visible || !report) return <div className="report-loading">Synthesizing Executive Report...</div>;
   const riskColor = SEV_COLOR[report.risk_rating] || "#888";
 
   return (
